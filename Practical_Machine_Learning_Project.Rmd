@@ -1,0 +1,203 @@
+---
+title: "Practical Machine Learning Project"
+author: "David del Moral"
+date: "June 16, 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+# Loading required libraries
+
+rm(list=ls())
+library(caret)
+library(randomForest)
+library(gbm)
+library(plyr)
+
+```
+
+
+
+```{r loading data}
+
+setwd("C:/Users/ddelmoral/Documents/Personal/Learning/Practical Machine Learning/project")
+
+#
+train_data <- read.csv("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv")
+test_data  <- read.csv("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv")
+
+#
+head(train_data)
+#
+head(test_data)
+
+summary(train_data)
+
+ncol(train_data)
+
+nrow(train_data)
+
+
+```
+
+We can observe that the data set contains 160 variables and 19622 records. We need to perform data cleansing before processing. 
+
+
+###Data cleansing 
+
+Removing first 7 columns, which only include log info seq No, user_name,time_stamp etc. these are no relevant for the prediction. 
+
+
+```{r data cleansing}
+
+clean_data<-train_data[, -(1:7)]
+
+### Removing colums containing NA or ""
+
+thres <- nrow(clean_data) * 0.95  
+
+nNaColumns <- !apply(clean_data, 2, function(x) sum(is.na(x)) > thres  || sum(x=="") > thres)
+
+clean_data <- clean_data[, nNaColumns]
+
+
+### Removing near zero variance columns
+
+nzColumns <- nearZeroVar(clean_data, saveMetrics = TRUE)
+
+clean_data <- clean_data[, nzColumns$nzv==FALSE]
+
+clean_data$classe = factor(clean_data$classe)
+
+
+###Determining variable importances analysis
+
+set.seed(20020223)
+
+##  20% data for importance analysis
+
+inAnalysis    <- createDataPartition(clean_data$classe, p = 0.2, list = FALSE)
+
+analysis.set  <- clean_data[inAnalysis, ]  
+
+model_analysis<-randomForest(classe ~.,data=analysis.set)
+
+imp_Vars <- varImp(model_analysis)
+
+varnames<-rownames(imp_Vars)
+
+var_Order<-data.frame(varnames=varnames,imp_Vars)
+
+var_Order<-arrange(var_Order, desc(Overall))
+
+# Plotting relevant variables
+ ggplot(var_Order, aes(x=reorder(varnames, desc(Overall)), y=Overall, fill=Overall)) +
+    geom_bar(stat="identity") + 
+    theme(legend.position="none") +
+    guides(fill=FALSE) +  
+    xlab("Feature") +
+    ylab("Importance") +
+    ggtitle("Features Importance") +
+    theme(axis.text.x = element_text(angle=90, hjust=1)) +
+    theme(plot.title  = element_text(size=20,  face="bold"))
+
+```
+
+
+### Determining relevant variables
+
+Trimming non important variables form the data set whose importance value is less than 30
+
+```{r determining relevant variables}
+
+var_Order[1:40,]
+
+Rel_Names<-as.character(var_Order[var_Order$Overall>30,]$varnames)
+
+Rel_Names<-c("classe",Rel_Names)
+
+Most_Rel_Cols<-unlist(lapply(names(clean_data), function(name){name %in% Rel_Names}))
+
+clean_data<-clean_data[,Most_Rel_Cols]
+
+ncol(clean_data)
+
+```
+
+After selecting relevant variables only 39 were left.
+
+
+### Data Partitioning
+
+
+```{r data partitioning}
+
+###Data partition
+
+inTrain <- createDataPartition(clean_data$classe, p = 0.75, list = FALSE)
+
+train_set <- clean_data[inTrain, ]  ##  75% data as the train data
+
+test_set <- clean_data[ -inTrain, ] 
+
+```
+
+
+
+
+
+###Prediction models training
+
+Prediction models are Random Forest and KNN methods.
+
+In the following code with the trained models, cross-validation on the testing data set is performed:
+
+```{r prediction modeling}
+
+modRF<-randomForest(classe ~.,data=train_set)
+
+ctrlKNN = trainControl(method = "adaptive_cv")
+
+modKNN = train(classe ~ ., data=train_set, method = "knn", trControl = ctrlKNN)
+
+predRF<-predict(modRF,test_set)
+
+rfMatrix<-confusionMatrix(predRF, test_set$classe)
+
+rfMatrix
+
+```
+
+
+###Confusion Matrix and Statistics
+
+####Submitting cases
+
+Predicting results are sown below:
+
+```{r confusion matrix}
+
+answer <- predict(modRF, test_data)
+
+answer
+
+```
+
+
+### Conclusions
+
+- For this project a predicting model manner of people doing exercise was made. NAs and blank columns were remove as well non-changed columnes and log columns non relevant for predictions. Variables were reduced from 160 to 39.
+
+- Despite the reduction the Random Forest still has an 0.9957 accuracy rate.
+
+- The resulting KNN's ( k-nearest neighbors) accuracy is 0.918.
+
+- The Random Forest method's out of sample error rate is: 0.0043.
+
+- The KNN method's out of sample error rate is: 0.082.
+
+- Because the Random Forest method has the lower out of sample error rate, it was selected to predict the required 20 test cases.
+
+- It can be observed that submitting results to the grader, it is obtained a 100% correctness.
